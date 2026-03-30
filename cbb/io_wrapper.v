@@ -1,6 +1,7 @@
 module io_wrapper #(
     parameter PHY_DIR = 0, //0-H,1-V
     parameter LMIT_SLEW_RATE = 0 //0-pdd io cell,1-prd io cell
+    parameter SCHMITT_TRIGGER = 0 //0-disable,1-enable
 )(
     //pad
     inout       PAD,
