@@ -14,6 +14,12 @@ from typing import List, Optional, Tuple
 import openpyxl
 
 
+def error(msg: str):
+    """打印红色错误信息并退出"""
+    print(f"\033[31mError: {msg}\033[0m")
+    sys.exit(1)
+
+
 @dataclass
 class FunctionInfo:
     """功能信息结构体"""
@@ -39,6 +45,11 @@ class PadInfo:
     second_pad_name: str = ""
     second_io_type: str = ""
 
+    # Cell name and derived parameters
+    cell_name: str = ""
+    lmit_slew_rate: int = 0
+    schmitt_trigger: int = 0
+
 
 class AutoIOGenerator:
     """自动IO Verilog生成器"""
@@ -62,7 +73,21 @@ class AutoIOGenerator:
         'scan_mode': "SEL_SCAN",
         'test_mode': "SEL_TEST",
     }
-    
+
+    # CELL NAME -> 参数映射
+    CELL_NAME_MAP = {
+        'PDDWUW0408DGH_H':  {'type': 'IO',      'lmit_slew_rate': 0, 'schmitt_trigger': 0, 'phy_dir': 0},
+        'PDDWUW0408DGH_V':  {'type': 'IO',      'lmit_slew_rate': 0, 'schmitt_trigger': 0, 'phy_dir': 1},
+        'PDDWUW0408SDGH_H': {'type': 'IO',      'lmit_slew_rate': 0, 'schmitt_trigger': 1, 'phy_dir': 0},
+        'PDDWUW0408SDGH_V': {'type': 'IO',      'lmit_slew_rate': 0, 'schmitt_trigger': 1, 'phy_dir': 1},
+        'PRDWUW1216DGH_H':  {'type': 'IO',      'lmit_slew_rate': 1, 'schmitt_trigger': 0, 'phy_dir': 0},
+        'PRDWUW1216DGH_V':  {'type': 'IO',      'lmit_slew_rate': 1, 'schmitt_trigger': 0, 'phy_dir': 1},
+        'PRDWUW1216SDGH_H': {'type': 'IO',      'lmit_slew_rate': 1, 'schmitt_trigger': 1, 'phy_dir': 0},
+        'PRDWUW1216SDGH_V': {'type': 'IO',      'lmit_slew_rate': 1, 'schmitt_trigger': 1, 'phy_dir': 1},
+        'PDXOEDG8E_H':      {'type': 'CRYSTAL', 'lmit_slew_rate': 0, 'schmitt_trigger': 0, 'phy_dir': 0},
+        'PDXOEDG8E_V':      {'type': 'CRYSTAL', 'lmit_slew_rate': 0, 'schmitt_trigger': 0, 'phy_dir': 1},
+    }
+
     def __init__(self, input_file: str, output_path: str):
         self.input_file = input_file
         self.output_path = output_path
@@ -103,6 +128,8 @@ class AutoIOGenerator:
                 col_map['type'] = col_idx
             elif 'DIGITAL' in val and 'IO' in val:
                 col_map['digital_io'] = col_idx
+            elif 'CELL' in val and 'NAME' in val:
+                col_map['cell_name'] = col_idx
         
         # 遍历第二行表头查找Function和Mode相关列
         for col_idx, cell in enumerate(header_row2):
@@ -151,8 +178,7 @@ class AutoIOGenerator:
         required_cols = ['pad_name', 'direction', 'type', 'digital_io']
         missing = [col for col in required_cols if col not in col_map]
         if missing:
-            print(f"Error: 表头中缺少必要列: {missing}")
-            sys.exit(1)
+            error(f"表头中缺少必要列: {missing}")
         
         self.col_map = col_map
         print(f"列映射: {col_map}")
@@ -163,13 +189,11 @@ class AutoIOGenerator:
             wb = openpyxl.load_workbook(self.input_file)
             ws = wb.active
         except Exception as e:
-            print(f"Error: 无法打开文件 {self.input_file}: {e}")
-            sys.exit(1)
+            error(f"无法打开文件 {self.input_file}: {e}")
         
         rows = list(ws.iter_rows())
         if len(rows) < 3:
-            print("Error: 表格行数不足，至少需要2行表头+1行数据")
-            sys.exit(1)
+            error("表格行数不足，至少需要2行表头+1行数据")
         
         # 解析表头，自动查找列索引
         header_row1 = rows[0]
@@ -204,7 +228,26 @@ class AutoIOGenerator:
             if pad_info.pad_type == 'CRSTAL':
                 pad_info.pad_type = 'CRYSTAL'
             pad_info.digital_io = digital_io
-            
+
+            # 解析CELL NAME并验证TYPE/Direction
+            pad_info.cell_name = self.get_cell_value(row, self.col_map.get('cell_name'))
+            if pad_info.cell_name:
+                cell_params = self.CELL_NAME_MAP.get(pad_info.cell_name.upper())
+                if cell_params is None:
+                    error(f"PAD {pad_info.pad_name} 的CELL NAME '{pad_info.cell_name}' 未知，无法验证")
+                else:
+                    # 验证TYPE
+                    expected_type = cell_params['type']
+                    if pad_info.pad_type != expected_type:
+                        error(f"PAD {pad_info.pad_name} TYPE不匹配: 表格中为'{pad_info.pad_type}'，CELL NAME '{pad_info.cell_name}'期望'{expected_type}'")
+                    # 验证Direction
+                    expected_dir = 'EW' if cell_params['phy_dir'] == 0 else 'NS'
+                    if pad_info.direction and pad_info.direction != expected_dir:
+                        error(f"PAD {pad_info.pad_name} Direction不匹配: 表格中为'{pad_info.direction}'，CELL NAME '{pad_info.cell_name}'期望'{expected_dir}'")
+                    # 写入参数
+                    pad_info.lmit_slew_rate = cell_params['lmit_slew_rate']
+                    pad_info.schmitt_trigger = cell_params['schmitt_trigger']
+
             # 解析Function信息
             pad_info.function0 = FunctionInfo(
                 name=self.get_cell_value(row, self.col_map.get('func0_name')),
@@ -235,8 +278,7 @@ class AutoIOGenerator:
             if pad_info.pad_type == 'CRYSTAL':
                 # CRYSTAL类型必须占两行
                 if i + 1 >= len(data_rows):
-                    print(f"Error: CRYSTAL类型 {pad_info.pad_name} 必须占两行")
-                    sys.exit(1)
+                    error(f"CRYSTAL类型 {pad_info.pad_name} 必须占两行")
                 
                 next_row = data_rows[i + 1]
                 next_type = self.get_cell_value(next_row, self.col_map.get('type')).upper()
@@ -247,8 +289,7 @@ class AutoIOGenerator:
                 
                 # CRYSTAL第二行也必须是CRYSTAL类型，但Digital IO可以为空或Y
                 if next_type != 'CRYSTAL':
-                    print(f"Error: CRYSTAL类型 {pad_info.pad_name} 必须占两行，且两行都需要是CRYSTAL类型，当前第二行类型为: {next_type}")
-                    sys.exit(1)
+                    error(f"CRYSTAL类型 {pad_info.pad_name} 必须占两行，且两行都需要是CRYSTAL类型，当前第二行类型为: {next_type}")
                 
                 pad_info.second_pad_name = self.get_cell_value(next_row, self.col_map.get('pad_name'))
                 pad_info.second_io_type = self.get_cell_value(next_row, self.col_map.get('func0_io')).upper()
@@ -263,13 +304,12 @@ class AutoIOGenerator:
             
             # 验证Direction (放在CRYSTAL处理后)
             if pad_info.direction not in ['EW', 'NS']:
-                print(f"Error: PAD {pad_info.pad_name} 的Direction必须为EW或NS，当前值为: {pad_info.direction}")
-                sys.exit(1)
+                error(f"PAD {pad_info.pad_name} 的Direction必须为EW或NS，当前值为: {pad_info.direction}")
             
             self.pads.append(pad_info)
         
         if not self.pads:
-            print("Warning: 没有找到需要生成的PAD (Digital IO列为Y的行)")
+            error("没有找到需要生成的PAD (Digital IO列为Y的行)")
     
     def get_phy_dir(self, direction: str) -> int:
         """根据Direction获取PHY_DIR值"""
@@ -302,15 +342,19 @@ class AutoIOGenerator:
         
         lines = []
         lines.append("//----------------------------------------------------------------")
-        lines.append(f"// PAD_NAME\t:{pad.pad_name}")
-        lines.append(f"// TYPE\t\t:{pad.pad_type}")
-        lines.append(f"// Direction:{pad.direction}")
-        lines.append(format_func_line("Function0", pad.function0.name, pad.function0.io_type))
-        lines.append(format_func_line("Function1", pad.function1.name, pad.function1.io_type))
-        lines.append(format_func_line("Function2", pad.function2.name, pad.function2.io_type))
-        lines.append(format_func_line("Function3", pad.function3.name, pad.function3.io_type))
-        lines.append(format_func_line("Test_mode", pad.test_mode.name, pad.test_mode.io_type))
-        lines.append(format_func_line("Scan_mode", pad.scan_mode.name, pad.scan_mode.io_type))
+        lines.append(f"// PAD_NAME         :{pad.pad_name}")
+        lines.append(f"// TYPE             :{pad.pad_type}")
+        lines.append(f"// CELL_NAME        :{pad.cell_name}")
+        lines.append(f"// Direction        :{pad.direction}")
+        lines.append(f"// LMIT_SLEW_RATE   :{pad.lmit_slew_rate}")
+        lines.append(f"// SCHMITT_TRIGGER  :{pad.schmitt_trigger}")
+        lines.append("//------------------------------------------")
+        lines.append(format_func_line("Function0        ", pad.function0.name, pad.function0.io_type))
+        lines.append(format_func_line("Function1        ", pad.function1.name, pad.function1.io_type))
+        lines.append(format_func_line("Function2        ", pad.function2.name, pad.function2.io_type))
+        lines.append(format_func_line("Function3        ", pad.function3.name, pad.function3.io_type))
+        lines.append(format_func_line("Test_mode        ", pad.test_mode.name, pad.test_mode.io_type))
+        lines.append(format_func_line("Scan_mode        ", pad.scan_mode.name, pad.scan_mode.io_type))
         lines.append("//----------------------------------------------------------------")
         return '\n'.join(lines)
     
@@ -360,8 +404,7 @@ class AutoIOGenerator:
             
             # 检测重复信号
             if signal_name in declared_signals:
-                print(f"Warning: 信号 {signal_name} 在PAD {pad.pad_name} 中重复定义，已跳过")
-                return
+                error(f"信号 {signal_name} 在PAD {pad.pad_name} 中重复定义，已跳过")
             declared_signals.add(signal_name)
             
             # 去掉后缀 _i, _o, _oen
@@ -443,8 +486,7 @@ class AutoIOGenerator:
                 xin_pad = pad.pad_name
                 xout_pad = pad.second_pad_name
             else:
-                print(f"Error: CRYSTAL类型 {pad.pad_name} 无法确定XIN/XOUT")
-                sys.exit(1)
+                error(f"CRYSTAL类型 {pad.pad_name} 无法确定XIN/XOUT")
         
         # 添加端口
         port_inputs.append(f"    input       {xin_pad},")
@@ -589,7 +631,9 @@ class AutoIOGenerator:
         max_signal_len = max(len(s) for s in signal_names)
         
         instance_code.append(f"xs_io #(")
-        instance_code.append(f".PHY_DIR({self.get_phy_dir(pad.direction)})")
+        instance_code.append(f".PHY_DIR          ( {self.get_phy_dir(pad.direction)} ),")
+        instance_code.append(f".LMIT_SLEW_RATE   ( {pad.lmit_slew_rate} ),")
+        instance_code.append(f".SCHMITT_TRIGGER  ( {pad.schmitt_trigger} )")
         instance_code.append(f")u_{pad.pad_name}(")
         instance_code.append(f".{'PAD':<{max_port_len}} ({pad.pad_name:<{max_signal_len}}),")
         instance_code.append(f".{'pad_config':<{max_port_len}} ({f'pad_config_{pad.pad_name}':<{max_signal_len}}),")
@@ -636,8 +680,7 @@ class AutoIOGenerator:
             if len(parts) >= 2:
                 signal_name = parts[-1].rstrip(',')
                 if signal_name in declared_signals:
-                    print(f"Warning: 信号 {signal_name} 在PAD {pad_name} 中重复定义，已跳过")
-                    return False
+                    error(f"信号 {signal_name} 在PAD {pad_name} 中重复定义，已跳过")
                 declared_signals.add(signal_name)
             signal_list.append(line)
             return True
@@ -765,8 +808,8 @@ class AutoIOGenerator:
         self.parse_excel()
         
         print(f"找到 {len(self.pads)} 个需要生成的PAD")
-        for pad in self.pads:
-            print(f"  - {pad.pad_name} ({pad.pad_type})")
+        # for pad in self.pads:
+        #     print(f"  - {pad.pad_name} ({pad.pad_type})")
         
         print(f"生成Verilog代码...")
         verilog_code = self.generate_verilog()
@@ -792,8 +835,7 @@ def main():
     
     # 检查输入文件是否存在
     if not os.path.exists(args.input):
-        print(f"Error: 输入文件不存在: {args.input}")
-        sys.exit(1)
+        error(f"输入文件不存在: {args.input}")
     
     generator = AutoIOGenerator(args.input, args.output_path)
     generator.run()
