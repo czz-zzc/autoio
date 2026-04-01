@@ -47,7 +47,7 @@ class PadInfo:
 
     # Cell name and derived parameters
     cell_name: str = ""
-    lmit_slew_rate: int = 0
+    rgmii: int = 0
     schmitt_trigger: int = 0
 
 
@@ -76,16 +76,14 @@ class AutoIOGenerator:
 
     # CELL NAME -> 参数映射
     CELL_NAME_MAP = {
-        'PDDWUW0408DGH_H':  {'type': 'IO',      'lmit_slew_rate': 0, 'schmitt_trigger': 0, 'phy_dir': 0},
-        'PDDWUW0408DGH_V':  {'type': 'IO',      'lmit_slew_rate': 0, 'schmitt_trigger': 0, 'phy_dir': 1},
-        'PDDWUW0408SDGH_H': {'type': 'IO',      'lmit_slew_rate': 0, 'schmitt_trigger': 1, 'phy_dir': 0},
-        'PDDWUW0408SDGH_V': {'type': 'IO',      'lmit_slew_rate': 0, 'schmitt_trigger': 1, 'phy_dir': 1},
-        'PRDWUW1216DGH_H':  {'type': 'IO',      'lmit_slew_rate': 1, 'schmitt_trigger': 0, 'phy_dir': 0},
-        'PRDWUW1216DGH_V':  {'type': 'IO',      'lmit_slew_rate': 1, 'schmitt_trigger': 0, 'phy_dir': 1},
-        'PRDWUW1216SDGH_H': {'type': 'IO',      'lmit_slew_rate': 1, 'schmitt_trigger': 1, 'phy_dir': 0},
-        'PRDWUW1216SDGH_V': {'type': 'IO',      'lmit_slew_rate': 1, 'schmitt_trigger': 1, 'phy_dir': 1},
-        'PDXOEDG8E_H':      {'type': 'CRYSTAL', 'lmit_slew_rate': 0, 'schmitt_trigger': 0, 'phy_dir': 0},
-        'PDXOEDG8E_V':      {'type': 'CRYSTAL', 'lmit_slew_rate': 0, 'schmitt_trigger': 0, 'phy_dir': 1},
+        'PDDWUW0408DGH_H':  {'type': 'IO',      'rgmii': 0, 'schmitt_trigger': 0, 'phy_dir': 0},
+        'PDDWUW0408DGH_V':  {'type': 'IO',      'rgmii': 0, 'schmitt_trigger': 0, 'phy_dir': 1},
+        'PDDWUW0408SDGH_H': {'type': 'IO',      'rgmii': 0, 'schmitt_trigger': 1, 'phy_dir': 0},
+        'PDDWUW0408SDGH_V': {'type': 'IO',      'rgmii': 0, 'schmitt_trigger': 1, 'phy_dir': 1},
+        'PDDW16DGZ_H':      {'type': 'IO',      'rgmii': 1, 'schmitt_trigger': 0, 'phy_dir': 0},
+        'PDDW16DGZ_V':      {'type': 'IO',      'rgmii': 1, 'schmitt_trigger': 0, 'phy_dir': 1},
+        'PDXOEDG8E_H':      {'type': 'CRYSTAL', 'rgmii': 0, 'schmitt_trigger': 0, 'phy_dir': 0},
+        'PDXOEDG8E_V':      {'type': 'CRYSTAL', 'rgmii': 0, 'schmitt_trigger': 0, 'phy_dir': 1},
     }
 
     def __init__(self, input_file: str, output_path: str):
@@ -245,7 +243,7 @@ class AutoIOGenerator:
                     if pad_info.direction and pad_info.direction != expected_dir:
                         error(f"PAD {pad_info.pad_name} Direction不匹配: 表格中为'{pad_info.direction}'，CELL NAME '{pad_info.cell_name}'期望'{expected_dir}'")
                     # 写入参数
-                    pad_info.lmit_slew_rate = cell_params['lmit_slew_rate']
+                    pad_info.rgmii = cell_params['rgmii']
                     pad_info.schmitt_trigger = cell_params['schmitt_trigger']
 
             # 解析Function信息
@@ -346,7 +344,7 @@ class AutoIOGenerator:
         lines.append(f"// TYPE             :{pad.pad_type}")
         lines.append(f"// CELL_NAME        :{pad.cell_name}")
         lines.append(f"// Direction        :{pad.direction}")
-        lines.append(f"// LMIT_SLEW_RATE   :{pad.lmit_slew_rate}")
+        lines.append(f"// RGMII            :{pad.rgmii}")
         lines.append(f"// SCHMITT_TRIGGER  :{pad.schmitt_trigger}")
         lines.append("//------------------------------------------")
         lines.append(format_func_line("Function0        ", pad.function0.name, pad.function0.io_type))
@@ -632,7 +630,7 @@ class AutoIOGenerator:
         
         instance_code.append(f"xs_io #(")
         instance_code.append(f".PHY_DIR          ( {self.get_phy_dir(pad.direction)} ),")
-        instance_code.append(f".LMIT_SLEW_RATE   ( {pad.lmit_slew_rate} ),")
+        instance_code.append(f".RGMII            ( {pad.rgmii} ),")
         instance_code.append(f".SCHMITT_TRIGGER  ( {pad.schmitt_trigger} )")
         instance_code.append(f")u_{pad.pad_name}(")
         instance_code.append(f".{'PAD':<{max_port_len}} ({pad.pad_name:<{max_signal_len}}),")
