@@ -1,7 +1,7 @@
 module xs_io #(
     parameter PHY_DIR = 0,         //0-H,1-V
-    parameter LMIT_SLEW_RATE = 0,  //0-pdd io cell,1-prd io cell
-    parameter SCHMITT_TRIGGER = 0 //0-Schmitt disable,1-enable
+    parameter SCHMITT_TRIGGER = 0, //0-Schmitt disable,1-enable 
+    parameter RGMII = 0            //0-non-rgmii-io,1-rgmii-io
 )(
     //pad
     inout       PAD,
@@ -15,8 +15,8 @@ module xs_io #(
 
     io_wrapper #(
         .PHY_DIR          ( PHY_DIR          ),
-        .LMIT_SLEW_RATE   ( LMIT_SLEW_RATE   ),
-        .SCHMITT_TRIGGER ( SCHMITT_TRIGGER )
+        .SCHMITT_TRIGGER  ( SCHMITT_TRIGGER  ),
+        .RGMII            ( RGMII            )
     ) u_io_wrapper (
         .PAD              ( PAD              ),
         .i_data_in        ( pad_out          ),
